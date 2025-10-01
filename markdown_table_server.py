@@ -38,15 +38,13 @@ CLIENT_SECRETS_FILE = 'client_secret.json'
 def get_redirect_uri():
     """Get redirect URI based on environment"""
     if os.getenv('FLASK_ENV') == 'production':
-        # Get base URL from environment or request
-        base_url = os.getenv('BASE_URL')
-        if not base_url:
-            # Try to construct from request if available
-            try:
-                from flask import request
-                base_url = f"{request.scheme}://{request.host}"
-            except:
-                base_url = 'https://your-app.your-domain.com'
+        # Always use HTTPS in production for OAuth
+        base_url = os.getenv('BASE_URL', 'https://kccs4kwkw8g4c4kwg0g4g0k.148.230.70.208.sslip.io')
+        # Ensure HTTPS
+        if base_url.startswith('http://'):
+            base_url = base_url.replace('http://', 'https://')
+        elif not base_url.startswith('https://'):
+            base_url = f"https://{base_url}"
         return f"{base_url}/oauth/callback"
     else:
         return 'http://localhost:5000/oauth/callback'
