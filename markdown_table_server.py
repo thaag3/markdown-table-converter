@@ -231,7 +231,12 @@ def oauth_callback():
             state=state
         )
         
-        flow.fetch_token(authorization_response=request.url)
+        # Force HTTPS in authorization response URL
+        auth_response_url = request.url
+        if auth_response_url.startswith('http://'):
+            auth_response_url = auth_response_url.replace('http://', 'https://')
+        
+        flow.fetch_token(authorization_response=auth_response_url)
         
         credentials = flow.credentials
         session['credentials'] = {
