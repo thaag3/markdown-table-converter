@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
 
+# Configure session for cross-domain use
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True  # Required for SameSite=None
+app.config['SESSION_COOKIE_HTTPONLY'] = False  # Allow JavaScript access
+
 # Configure CORS to allow TypingMind and other clients
 CORS(app, origins="*", supports_credentials=True)  # DEBUG: Allow all origins
 
@@ -238,6 +243,7 @@ def oauth_callback():
         flow.fetch_token(authorization_response=auth_response_url)
         
         credentials = flow.credentials
+        # Store credentials in session
         session['credentials'] = {
             'token': credentials.token,
             'refresh_token': credentials.refresh_token,
@@ -247,12 +253,19 @@ def oauth_callback():
             'scopes': credentials.scopes
         }
         
+        # Generate access token for cross-domain use
+        access_token = secrets.token_urlsafe(32)
+        session['access_token'] = access_token
+        
         logger.info("OAuth authorization successful")
         
-        return '''
+        return f'''
         <h1>Authorization Successful!</h1>
         <p>You can now use the markdown table converter.</p>
         <p>Your credentials are stored for this session.</p>
+        <p><strong>Access Token for TypingMind:</strong></p>
+        <p><code>{access_token}</code></p>
+        <p><em>Copy this token and paste it in your TypingMind plugin settings under "Access Token"</em></p>
         <p><a href="/">Back to Home</a></p>
         '''
     except Exception as e:
