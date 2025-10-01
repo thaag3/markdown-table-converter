@@ -29,11 +29,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
 
 # Configure CORS to allow TypingMind and other clients
-CORS(app, 
-     origins=['https://typingmind.com', 'https://www.typingmind.com', 'https://app.typingmind.com'],
-     supports_credentials=True,
-     allow_headers=['Content-Type', 'Authorization', 'Accept'],
-     methods=['GET', 'POST', 'OPTIONS'])
+CORS(app, origins="*", supports_credentials=True)  # DEBUG: Allow all origins
 
 # Google OAuth 2.0 configuration
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
