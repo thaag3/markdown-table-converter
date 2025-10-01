@@ -12,6 +12,7 @@ import io
 import re
 import logging
 from datetime import datetime
+from openpyxl import Workbook
 from flask import Flask, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
 from google.auth.transport.requests import Request
@@ -58,7 +59,7 @@ class MarkdownTableParser:
     @staticmethod
     def parse_tables(markdown_text):
         """Parse markdown tables from text"""
-        lines = markdown_text.split('\\n')
+        lines = markdown_text.split('\n')
         tables = []
         current_table = None
         
@@ -70,7 +71,7 @@ class MarkdownTableParser:
                 
                 # Check if next line is header separator
                 next_line = lines[i + 1].strip() if i + 1 < len(lines) else ''
-                is_header_separator = bool(re.match(r'^\\|[\\s\\-\\|:]+\\|$', next_line))
+                is_header_separator = bool(re.match(r'^\|[\s\-\|:]+\|$', next_line))
                 
                 if is_header_separator:
                     current_table = {
@@ -106,6 +107,35 @@ class MarkdownTableParser:
         return output.getvalue()
     
     @staticmethod
+    def create_excel(tables):
+        """Convert tables to Excel format"""
+        wb = Workbook()
+        
+        # Remove default sheet if we have tables
+        if tables:
+            wb.remove(wb.active)
+        
+        for i, table in enumerate(tables):
+            # Create worksheet for each table
+            sheet_name = f"Tabell_{i + 1}" if len(tables) > 1 else "Tabell"
+            ws = wb.create_sheet(title=sheet_name)
+            
+            # Write header
+            for col, header in enumerate(table['header'], 1):
+                ws.cell(row=1, column=col, value=header)
+            
+            # Write rows
+            for row_idx, row in enumerate(table['rows'], 2):
+                for col_idx, cell_value in enumerate(row, 1):
+                    ws.cell(row=row_idx, column=col_idx, value=cell_value)
+        
+        # Save to BytesIO
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output.getvalue()
+    
+    @staticmethod
     def create_json(tables):
         """Convert tables to JSON format"""
         result = []
@@ -134,21 +164,34 @@ class GoogleDriveUploader:
     def create_folder(self, folder_name):
         """Create folder in Google Drive if it doesn't exist"""
         try:
-            # Search for existing folder
+            # Search for existing folder with exact name match
             query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
             results = self.service.files().list(q=query).execute()
             
-            if results['files']:
-                return results['files'][0]['id']
+            logger.info(f"Searching for folder '{folder_name}', found {len(results['files'])} matches")
             
-            # Create new folder
+            if results['files']:
+                folder_id = results['files'][0]['id']
+                logger.info(f"Using existing folder: {folder_name} with ID: {folder_id}")
+                return folder_id
+            
+            # If exact match not found, search for case-insensitive match
+            all_folders_query = "mimeType='application/vnd.google-apps.folder' and trashed=false"
+            all_results = self.service.files().list(q=all_folders_query).execute()
+            
+            for folder in all_results['files']:
+                if folder['name'].lower() == folder_name.lower():
+                    logger.info(f"Found case-insensitive match: '{folder['name']}' for '{folder_name}'")
+                    return folder['id']
+            
+            # Create new folder if none found
             folder_metadata = {
                 'name': folder_name,
                 'mimeType': 'application/vnd.google-apps.folder'
             }
             
             folder = self.service.files().create(body=folder_metadata).execute()
-            logger.info(f"Created folder: {folder_name} with ID: {folder['id']}")
+            logger.info(f"Created new folder: {folder_name} with ID: {folder['id']}")
             return folder['id']
         except Exception as e:
             logger.error(f"Error creating folder: {e}")
@@ -164,8 +207,14 @@ class GoogleDriveUploader:
             if folder_id:
                 file_metadata['parents'] = [folder_id]
             
+            # Handle both text and binary content
+            if isinstance(content, str):
+                content_bytes = content.encode('utf-8')
+            else:
+                content_bytes = content
+            
             media = MediaIoBaseUpload(
-                io.BytesIO(content.encode('utf-8')),
+                io.BytesIO(content_bytes),
                 mimetype=content_type,
                 resumable=True
             )
@@ -363,45 +412,25 @@ def convert_tables():
             })
         
         if format_type in ['excel', 'both']:
-            if len(tables) == 1:
-                csv_content = parser.create_csv(tables[0])
-                csv_filename = f"{filename}.csv"
-                
-                result = uploader.upload_file(
-                    csv_content,
-                    csv_filename,
-                    'text/csv',
-                    folder_id
-                )
-                
-                uploaded_files.append({
-                    'type': 'csv',
-                    'filename': csv_filename,
-                    'fileId': result['id'],
-                    'webViewLink': result['webViewLink'],
-                    'downloadLink': result['downloadLink'],
-                    'tableIndex': 1
-                })
-            else:
-                for i, table in enumerate(tables):
-                    csv_content = parser.create_csv(table)
-                    csv_filename = f"{filename}_tabell_{i + 1}.csv"
-                    
-                    result = uploader.upload_file(
-                        csv_content,
-                        csv_filename,
-                        'text/csv',
-                        folder_id
-                    )
-                    
-                    uploaded_files.append({
-                        'type': 'csv',
-                        'filename': csv_filename,
-                        'fileId': result['id'],
-                        'webViewLink': result['webViewLink'],
-                        'downloadLink': result['downloadLink'],
-                        'tableIndex': i + 1
-                    })
+            # Create single Excel file with all tables
+            excel_content = parser.create_excel(tables)
+            excel_filename = f"{filename}.xlsx"
+            
+            result = uploader.upload_file(
+                excel_content,
+                excel_filename,
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                folder_id
+            )
+            
+            uploaded_files.append({
+                'type': 'excel',
+                'filename': excel_filename,
+                'fileId': result['id'],
+                'webViewLink': result['webViewLink'],
+                'downloadLink': result['downloadLink'],
+                'tables_count': len(tables)
+            })
         
         logger.info(f"Successfully uploaded {len(uploaded_files)} files")
         
