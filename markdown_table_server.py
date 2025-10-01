@@ -229,7 +229,12 @@ def oauth_callback():
             state=state
         )
         
-        flow.fetch_token(authorization_response=request.url)
+        # Fix for HTTPS proxy: construct proper HTTPS URL for authorization_response
+        authorization_response = request.url
+        if os.getenv('FLASK_ENV') == 'production' and authorization_response.startswith('http://'):
+            authorization_response = authorization_response.replace('http://', 'https://', 1)
+        
+        flow.fetch_token(authorization_response=authorization_response)
         
         credentials = flow.credentials
         session['credentials'] = {
