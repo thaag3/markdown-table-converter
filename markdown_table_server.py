@@ -13,6 +13,7 @@ import re
 import logging
 from datetime import datetime
 from flask import Flask, request, jsonify, session, redirect, url_for
+from flask_cors import CORS
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -27,13 +28,15 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
 
+# Configure CORS to allow TypingMind and other clients
+CORS(app, 
+     origins=['https://typingmind.com', 'https://www.typingmind.com', 'https://app.typingmind.com'],
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization', 'Accept'],
+     methods=['GET', 'POST', 'OPTIONS'])
+
 # Google OAuth 2.0 configuration
-SCOPES = [
-    'https://www.googleapis.com/auth/drive.file',
-    'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile',
-    'openid'
-]
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
 CLIENT_SECRETS_FILE = 'client_secret.json'
 
 def get_redirect_uri():
@@ -234,12 +237,7 @@ def oauth_callback():
             state=state
         )
         
-        # Fix for HTTPS proxy: construct proper HTTPS URL for authorization_response
-        authorization_response = request.url
-        if os.getenv('FLASK_ENV') == 'production' and authorization_response.startswith('http://'):
-            authorization_response = authorization_response.replace('http://', 'https://', 1)
-        
-        flow.fetch_token(authorization_response=authorization_response)
+        flow.fetch_token(authorization_response=request.url)
         
         credentials = flow.credentials
         session['credentials'] = {
